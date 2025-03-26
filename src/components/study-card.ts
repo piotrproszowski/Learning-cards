@@ -1,132 +1,287 @@
-export class StudyCard extends HTMLElement {
-  private _question: string = "";
-  private _answer: string = "";
-  private _showAnswer: boolean = false;
+import { Difficulty } from "@/models/card";
+import { StateManager } from "@/services/state-manager";
 
-  private shadow: ShadowRoot;
+/**
+ * Web Component for displaying and interacting with study cards
+ * @example
+ * <study-card
+ *   question="What is the capital of France?"
+ *   answer="Paris"
+ *   difficulty="MEDIUM"
+ *   tags="geography,europe"
+ * ></study-card>
+ */
+export class StudyCard extends HTMLElement {
+  public static readonly TAG_NAME = "study-card";
+
+  private question: string = "";
+  private answer: string = "";
+  private isAnswerVisible: boolean = false;
+  private difficulty: Difficulty = Difficulty.MEDIUM;
+  private tags: string[] = [];
+
+  private readonly shadow: ShadowRoot;
+  private readonly stateManager: StateManager;
 
   constructor() {
     super();
     this.shadow = this.attachShadow({ mode: "open" });
+    this.stateManager = StateManager.getInstance();
+    this.setupEventListeners();
     this.render();
   }
 
-  connectedCallback() {
-    this.addEventListener("click", this.toggleAnswer);
+  connectedCallback(): void {
+    this.setupAccessibility();
+    this.validateAttributes();
   }
 
-  disconnectedCallback() {
-    this.removeEventListener("click", this.toggleAnswer);
+  disconnectedCallback(): void {
+    this.cleanupEventListeners();
   }
 
-  static get observedAttributes() {
-    return ["question", "answer"];
+  static get observedAttributes(): string[] {
+    return ["question", "answer", "difficulty", "tags"];
   }
 
-  attributeChangedCallback(name: string, oldValue: string, newValue: string) {
+  attributeChangedCallback(
+    name: string,
+    oldValue: string | null,
+    newValue: string | null,
+  ): void {
     if (oldValue === newValue) return;
 
-    switch (name) {
-      case "question":
-        this._question = newValue;
-        break;
-      case "answer":
-        this._answer = newValue;
-        break;
+    try {
+      switch (name) {
+        case "question":
+          this.validateQuestion(newValue);
+          this.question = newValue || "";
+          break;
+        case "answer":
+          this.validateAnswer(newValue);
+          this.answer = newValue || "";
+          break;
+        case "difficulty":
+          this.validateDifficulty(newValue);
+          this.difficulty = (newValue as Difficulty) || Difficulty.MEDIUM;
+          break;
+        case "tags":
+          this.validateTags(newValue);
+          this.tags = newValue ? JSON.parse(newValue) : [];
+          break;
+      }
+      this.render();
+    } catch (error) {
+      console.error(`Error updating ${name}:`, error);
+      this.dispatchEvent(
+        new CustomEvent("error", {
+          detail: { message: `Invalid ${name} value` },
+        }),
+      );
     }
-
-    this.render();
   }
 
-  get question() {
-    return this._question;
+  private setupEventListeners(): void {
+    this.addEventListener("click", this.handleClick);
+    this.addEventListener("keydown", this.handleKeydown);
   }
 
-  set question(value: string) {
-    this.setAttribute("question", value);
+  private cleanupEventListeners(): void {
+    this.removeEventListener("click", this.handleClick);
+    this.removeEventListener("keydown", this.handleKeydown);
   }
 
-  get answer() {
-    return this._answer;
+  private setupAccessibility(): void {
+    this.setAttribute("role", "button");
+    this.setAttribute("tabindex", "0");
+    this.setAttribute("aria-expanded", "false");
+    this.setAttribute("aria-label", "Study card");
+    this.setAttribute("aria-live", "polite");
   }
 
-  set answer(value: string) {
-    this.setAttribute("answer", value);
+  private validateAttributes(): void {
+    if (!this.question) {
+      this.setAttribute("aria-invalid", "true");
+      this.setAttribute("aria-errormessage", "question-error");
+      throw new Error("Question attribute is required");
+    }
+    if (!this.answer) {
+      this.setAttribute("aria-invalid", "true");
+      this.setAttribute("aria-errormessage", "answer-error");
+      throw new Error("Answer attribute is required");
+    }
   }
 
-  toggleAnswer = () => {
-    this._showAnswer = !this._showAnswer;
-    this.render();
+  private validateQuestion(value: string | null): void {
+    if (!value || value.trim().length === 0) {
+      throw new Error("Question cannot be empty");
+    }
+  }
+
+  private validateAnswer(value: string | null): void {
+    if (!value || value.trim().length === 0) {
+      throw new Error("Answer cannot be empty");
+    }
+  }
+
+  private validateDifficulty(value: string | null): void {
+    if (value && !Object.values(Difficulty).includes(value as Difficulty)) {
+      throw new Error("Invalid difficulty value");
+    }
+  }
+
+  private validateTags(value: string | null): void {
+    if (value) {
+      try {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) {
+          throw new Error("Tags must be an array");
+        }
+      } catch {
+        throw new Error("Invalid tags format");
+      }
+    }
+  }
+
+  private handleClick = (): void => {
+    this.toggleAnswer();
   };
 
-  render() {
-    const styles = `
-      :host {
-        display: block;
-        font-family: Arial, sans-serif;
-        background-color: #f5f5f5;
-        border-radius: 8px;
-        padding: 16px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        cursor: pointer;
-        transition: transform 0.3s ease;
-        min-height: 150px;
-        position: relative;
-      }
-        
-      :host(:hover) {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-      }
-
-      .card-content {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        height: 100%;
-        text-align: center;
+  private handleKeydown = (event: KeyboardEvent): void => {
+    switch (event.key) {
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        this.toggleAnswer();
+        break;
+      case "Escape":
+        if (this.isAnswerVisible) {
+          this.toggleAnswer();
         }
+        break;
+    }
+  };
 
-       .question {
-        font-size: 1.2rem;
-        font-weight: bold;
-        margin-bottom: 16px;
-      }
-      
-      .answer {
-        font-size: 1.1rem;
-        color: #4a4a4a;
-        transform: scaleY(0);
-        height: 0;
-        overflow: hidden;
-        transition: all 0.3s ease;
-      }
-      
-      .answer.visible {
-        transform: scaleY(1);
-        height: auto;
-        margin-top: 16px;
-      }
-      
-      .hint {
-        position: absolute;
-        bottom: 8px;
-        right: 8px;
-        font-size: 0.8rem;
-        color: #999;
-      }
-    `;
+  private toggleAnswer(): void {
+    this.isAnswerVisible = !this.isAnswerVisible;
+    this.setAttribute("aria-expanded", String(this.isAnswerVisible));
+    this.render();
+
+    // Announce the state change
+    const announcement = this.isAnswerVisible
+      ? "Answer shown"
+      : "Answer hidden";
+    this.setAttribute("aria-label", `Study card: ${announcement}`);
+
+    this.dispatchEvent(
+      new CustomEvent("toggle", {
+        detail: { isVisible: this.isAnswerVisible },
+      }),
+    );
+  }
+
+  private render(): void {
+    const styles = `
+            :host {
+                display: block;
+                font-family: var(--font-family-base);
+                background-color: var(--surface-color);
+                border-radius: var(--border-radius-md);
+                padding: var(--spacing-md);
+                box-shadow: var(--shadow-md);
+                cursor: pointer;
+                transition: transform var(--transition-normal),
+                           box-shadow var(--transition-normal);
+                min-height: 150px;
+                position: relative;
+            }
+            
+            :host(:hover) {
+                transform: translateY(-2px);
+                box-shadow: var(--shadow-lg);
+            }
+            
+            .card-content {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                height: 100%;
+                text-align: center;
+            }
+            
+            .question {
+                font-size: var(--font-size-lg);
+                font-weight: bold;
+                margin-bottom: var(--spacing-md);
+                color: var(--text-color);
+            }
+            
+            .answer {
+                font-size: var(--font-size-md);
+                color: var(--text-secondary-color);
+                transform: scaleY(0);
+                height: 0;
+                overflow: hidden;
+                transition: all var(--transition-normal);
+            }
+            
+            .answer.visible {
+                transform: scaleY(1);
+                height: auto;
+                margin-top: var(--spacing-md);
+            }
+            
+            .difficulty-badge {
+                position: absolute;
+                top: var(--spacing-sm);
+                right: var(--spacing-sm);
+                padding: var(--spacing-xs) var(--spacing-sm);
+                border-radius: var(--border-radius-full);
+                font-size: var(--font-size-sm);
+                background-color: var(--primary-color);
+                color: var(--contrast-text-color);
+            }
+            
+            .tags {
+                display: flex;
+                gap: var(--spacing-xs);
+                flex-wrap: wrap;
+                margin-top: var(--spacing-sm);
+            }
+            
+            .tag {
+                padding: var(--spacing-xs) var(--spacing-sm);
+                border-radius: var(--border-radius-sm);
+                background-color: var(--secondary-color);
+                color: var(--contrast-text-color);
+                font-size: var(--font-size-sm);
+            }
+        `;
 
     this.shadow.innerHTML = `
-      <style>${styles}</style>
-      <div class="card-content">
-        <div class="question">${this._question}</div>
-        <div class="answer ${this._showAnswer ? "visible" : ""}">${this._answer}</div>
-        <div class="hint">${this._showAnswer ? "Show Answer" : "Show Hint"}</div>
-      </div>
-    `;
+            <style>${styles}</style>
+            <div class="card-content">
+                ${this.difficulty ? `<span class="difficulty-badge" aria-hidden="true">${this.difficulty}</span>` : ""}
+                <div class="question" id="question-${this.id}">${this.question}</div>
+                <div 
+                    class="answer ${this.isAnswerVisible ? "visible" : ""}"
+                    id="answer-${this.id}"
+                    aria-labelledby="question-${this.id}"
+                    aria-hidden="${!this.isAnswerVisible}"
+                >${this.answer}</div>
+                ${
+                  this.tags.length
+                    ? `
+                    <div class="tags" aria-hidden="true">
+                        ${this.tags.map((tag) => `<span class="tag">${tag}</span>`).join("")}
+                    </div>
+                `
+                    : ""
+                }
+            </div>
+        `;
   }
 }
 
-customElements.define("study-card", StudyCard);
+customElements.define(StudyCard.TAG_NAME, StudyCard);
